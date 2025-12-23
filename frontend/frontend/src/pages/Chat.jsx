@@ -7,21 +7,36 @@ export default function Chat() {
   const [activeChat, setActiveChat] = useState(null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
+  const [typing, setTyping] = useState(false);
 
-  /* =========================
-     Fetch user chats
-  ========================= */
+  /* ================= Fetch chats ================= */
   useEffect(() => {
-    const fetchChats = async () => {
-      const { data } = await api.get("/chat");
-      setChats(data);
-    };
-    fetchChats();
+    api.get("/chat").then((res) => setChats(res.data));
   }, []);
 
-  /* =========================
-     Handle active chat
-  ========================= */
+  /* ================= Socket listeners ================= */
+  useEffect(() => {
+    const onReceiveMessage = (msg) => {
+      if (msg.chat === activeChat?._id) {
+        setMessages((prev) => {
+          const exists = prev.find((m) => m._id === msg._id);
+          return exists ? prev : [...prev, msg];
+        });
+      }
+    };
+
+    socket.on("receive_message", onReceiveMessage);
+    socket.on("typing", () => setTyping(true));
+    socket.on("stop_typing", () => setTyping(false));
+
+    return () => {
+      socket.off("receive_message", onReceiveMessage);
+      socket.off("typing");
+      socket.off("stop_typing");
+    };
+  }, [activeChat?._id]);
+
+  /* ================= Active chat ================= */
   useEffect(() => {
     if (!activeChat) return;
 
@@ -31,42 +46,15 @@ export default function Chat() {
       setMessages(res.data);
     });
 
-    const messageHandler = (msg) => {
-      if (msg.chat === activeChat._id) {
-        setMessages((prev) => [...prev, msg]);
-      }
-    };
-
-    socket.on("receive_message", messageHandler);
-
     return () => {
-      socket.off("receive_message", messageHandler);
+      socket.emit("leave_chat", activeChat._id);
+      setMessages([]);
     };
   }, [activeChat]);
 
-  /* =========================
-     Start new chat
-  ========================= */
-  const startChat = async () => {
-    const userId = prompt("Enter other user ID");
-    if (!userId) return;
-
-    const { data } = await api.post("/chat", { userId });
-
-    setChats((prev) => {
-      const exists = prev.find((c) => c._id === data._id);
-      if (exists) return prev;
-      return [...prev, data];
-    });
-
-    setActiveChat(data);
-  };
-
-  /* =========================
-     Send message
-  ========================= */
+  /* ================= Send message ================= */
   const sendMessage = async () => {
-    if (!text.trim() || !activeChat) return;
+    if (!text.trim()) return;
 
     await api.post("/message", {
       content: text,
@@ -74,65 +62,58 @@ export default function Chat() {
     });
 
     setText("");
+    socket.emit("stop_typing", activeChat._id);
+  };
+
+  /* ================= Typing ================= */
+  const handleTyping = (e) => {
+    setText(e.target.value);
+    socket.emit("typing", activeChat._id);
+
+    setTimeout(() => {
+      socket.emit("stop_typing", activeChat._id);
+    }, 800);
   };
 
   return (
     <div className="h-screen flex">
-      {/* ================= Chat List ================= */}
-      <div className="w-1/3 bg-white border-r p-4 flex flex-col">
-        <button
-          onClick={startChat}
-          className="w-full bg-black text-white py-2 rounded mb-4"
-        >
-          Start New Chat
-        </button>
-
-        <div className="flex-1 overflow-y-auto space-y-1">
-          {chats.map((chat) => (
-            <div
-              key={chat._id}
-              className={`p-2 rounded cursor-pointer ${
-                activeChat?._id === chat._id
-                  ? "bg-gray-200"
-                  : "hover:bg-gray-100"
-              }`}
-              onClick={() => setActiveChat(chat)}
-            >
-              Chat with {chat.users.length} users
-            </div>
-          ))}
-        </div>
+      {/* Chat list */}
+      <div className="w-1/3 border-r p-4">
+        {chats.map((chat) => (
+          <div
+            key={chat._id}
+            onClick={() => setActiveChat(chat)}
+            className="p-2 cursor-pointer hover:bg-gray-100"
+          >
+            Chat ({chat.users.length})
+          </div>
+        ))}
       </div>
 
-      {/* ================= Chat Window ================= */}
+      {/* Chat window */}
       <div className="flex-1 flex flex-col">
         <div className="flex-1 p-4 overflow-y-auto">
-          {activeChat ? (
-            messages.map((m) => (
-              <div key={m._id} className="mb-2">
-                <span className="font-semibold">{m.sender.name}:</span>{" "}
-                {m.content}
-              </div>
-            ))
-          ) : (
-            <div className="h-full flex items-center justify-center text-gray-400">
-              Select a chat to start messaging
+          {messages.map((m) => (
+            <div key={m._id}>
+              <b>{m.sender?.name}:</b> {m.content}
             </div>
+          ))}
+          {typing && (
+            <div className="italic text-gray-400">Typing...</div>
           )}
         </div>
 
         {activeChat && (
-          <div className="p-4 flex gap-2 border-t">
+          <div className="p-4 flex gap-2">
             <input
-              className="flex-1 border p-2 rounded"
               value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Type a message..."
+              onChange={handleTyping}
+              className="flex-1 border p-2"
               onKeyDown={(e) => e.key === "Enter" && sendMessage()}
             />
             <button
               onClick={sendMessage}
-              className="bg-black text-white px-4 rounded"
+              className="bg-black text-white px-4"
             >
               Send
             </button>
