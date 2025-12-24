@@ -52,9 +52,24 @@ export default function Chat() {
     };
   }, [activeChat]);
 
+  /* ================= START NEW CHAT ================= */
+  const startNewChat = async () => {
+    const userId = prompt("Enter other user ID");
+    if (!userId) return;
+
+    const { data } = await api.post("/chat", { userId });
+
+    setChats((prev) => {
+      const exists = prev.find((c) => c._id === data._id);
+      return exists ? prev : [data, ...prev];
+    });
+
+    setActiveChat(data);
+  };
+
   /* ================= Send message ================= */
   const sendMessage = async () => {
-    if (!text.trim()) return;
+    if (!text.trim() || !activeChat) return;
 
     await api.post("/message", {
       content: text,
@@ -77,43 +92,65 @@ export default function Chat() {
 
   return (
     <div className="h-screen flex">
-      {/* Chat list */}
-      <div className="w-1/3 border-r p-4">
-        {chats.map((chat) => (
-          <div
-            key={chat._id}
-            onClick={() => setActiveChat(chat)}
-            className="p-2 cursor-pointer hover:bg-gray-100"
-          >
-            Chat ({chat.users.length})
-          </div>
-        ))}
-      </div>
+      {/* ================= Chat list ================= */}
+      <div className="w-1/3 border-r p-4 flex flex-col">
+        <button
+          onClick={startNewChat}
+          className="mb-4 bg-black text-white py-2 rounded"
+        >
+          + Start New Chat
+        </button>
 
-      {/* Chat window */}
-      <div className="flex-1 flex flex-col">
-        <div className="flex-1 p-4 overflow-y-auto">
-          {messages.map((m) => (
-            <div key={m._id}>
-              <b>{m.sender?.name}:</b> {m.content}
+        <div className="flex-1 overflow-y-auto">
+          {chats.map((chat) => (
+            <div
+              key={chat._id}
+              onClick={() => setActiveChat(chat)}
+              className={`p-2 cursor-pointer rounded ${
+                activeChat?._id === chat._id
+                  ? "bg-gray-200"
+                  : "hover:bg-gray-100"
+              }`}
+            >
+              Chat ({chat.users.length})
             </div>
           ))}
-          {typing && (
-            <div className="italic text-gray-400">Typing...</div>
+        </div>
+      </div>
+
+      {/* ================= Chat window ================= */}
+      <div className="flex-1 flex flex-col">
+        <div className="flex-1 p-4 overflow-y-auto">
+          {activeChat ? (
+            <>
+              {messages.map((m) => (
+                <div key={m._id} className="mb-2">
+                  <b>{m.sender?.name}:</b> {m.content}
+                </div>
+              ))}
+              {typing && (
+                <div className="italic text-gray-400">Typing...</div>
+              )}
+            </>
+          ) : (
+            <div className="h-full flex items-center justify-center text-gray-400">
+              Select or start a chat
+            </div>
           )}
         </div>
 
         {activeChat && (
-          <div className="p-4 flex gap-2">
+          <div className="p-4 flex gap-2 border-t">
             <input
               value={text}
               onChange={handleTyping}
-              className="flex-1 border p-2"
+              className="flex-1 border p-2 rounded"
+              placeholder="Type a message..."
               onKeyDown={(e) => e.key === "Enter" && sendMessage()}
             />
             <button
               onClick={sendMessage}
-              className="bg-black text-white px-4"
+              className="bg-black text-white px-4 rounded"
             >
               Send
             </button>
